@@ -1,0 +1,659 @@
+substitutions:
+  name: sprinkler-controller
+  friendly_name: Sprinkler Controller
+  comment: "Sprinker Controller based on ESP32 8ch relay board. Added I2C display, Dallas sensor for water temperature, and I2C RTC clock."
+  area: Garden
+  # Relay pins
+  relay_pin_1: GPIO32
+  relay_pin_2: GPIO33
+  relay_pin_3: GPIO25
+  relay_pin_4: GPIO26
+  relay_pin_5: GPIO27
+  relay_pin_6: GPIO14
+  relay_pin_7: GPIO12
+  relay_pin_8: GPIO13
+  # 1Wire Dallas pins
+  dallas_temp_gpio: GPIO15
+  dallas_temp_address: 0xda00000054930528 
+  # I2C, display pins
+  i2c_sda: GPIO21
+  i2c_scl: GPIO22
+
+  status_led: GPIO23
+  io0_button:
+    number: GPIO0
+    inverted: true
+
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  comment: ${comment}
+  area: ${area}
+  name_add_mac_suffix: True
+
+  on_boot: 
+    then:
+      - ds1307.read_time:
+      - delay: 2min
+      - lambda: id(oled).turn_off();
+
+wifi:
+  use_address: sprinkler-controller-7cee64.local
+  # reboot_timeout: 12h
+
+esp32:
+  board: esp32dev
+  # framework:
+  #   type: esp-idf
+
+# Include common settings
+packages:
+  - !include common/wifi.yaml
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  id: api_id
+  reboot_timeout: 12h
+  actions:
+    - action: run_valve_0
+      variables:
+        duration: int
+      then:
+        - sprinkler.start_single_valve:
+            id: garden_sprinkler_ctrlr
+            valve_number: 0
+            run_duration: !lambda 'return duration;'
+    - action: run_valve_1
+      variables:
+        duration: int
+      then:
+        - sprinkler.start_single_valve:
+            id: garden_sprinkler_ctrlr
+            valve_number: 1
+            run_duration: !lambda 'return duration;'
+    - service: shutdown
+      then:
+        - sprinkler.shutdown: garden_sprinkler_ctrlr
+    - service: pause
+      then:
+        - sprinkler.pause: garden_sprinkler_ctrlr
+    - service: resume
+      then:
+        - sprinkler.resume: garden_sprinkler_ctrlr
+  # encryption:
+    # key: "+z8komiS9bTAq7gCGK3Tp2WmcAki9qKN46JEjaQg9GE="
+
+ota:
+  - platform: esphome
+    # password: "748be79d5ed6b59155f76b15360e946e"
+
+status_led:
+  pin: ${status_led}
+
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+    id: roboto_12
+    size: 12
+    glyphsets:
+      # - GF_Latin_Core
+      - GF_Cyrillic_Core
+
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: mdi_medium
+    size: 15
+    glyphs:
+      - "\U000F0928" # wifi-4
+      - "\U000F0925" # wifi-3
+      - "\U000F0922" # wifi-2
+      - "\U000F091F" # wifi-1
+      - "\U000F0920" # Low-wifi
+      - "\U000F092B" # No-wifi
+      - "\U000F18F6" # cloudy clock
+      - "\U000F0597" # raining
+      - "\U000F0599" # sunny
+      - "\U000F058C" # drop
+      - "\U000F1508" # drop off
+      - "\U000F1060" # sprinkler
+      - "\U000F03E7" # pause
+      - "\U000F07D0" # home assistant
+      - "\U000F13AB" # timer
+
+globals:
+  - id: binary_sensor_relay_var
+    type: bool
+    restore_value: True
+
+
+sprinkler:
+  - id: garden_sprinkler_ctrlr
+    pump_pulse_duration: 10s
+    pump_stop_valve_delay: 1s
+    pump_start_valve_delay: 10s
+    main_switch: "Sprinklers"
+    auto_advance_switch: "Sprinklers Auto Advance"
+    multiplier_number:
+      name: "Multiplier"
+      icon: "mdi:multiplication"
+    repeat_number:
+      name: "Repeat"
+      icon: "mdi:repeat"
+    valves:
+      - valve_switch: "Garden Drip"
+        enable_switch: "Enable Garden Drip"
+        pump_on_switch_id: sprinkler_pump_on_sw
+        pump_off_switch_id: sprinkler_pump_off_sw
+        # run_duration: 900s
+        run_duration_number: 
+          id: zone_1_run_duration
+          name: "Zone 1 Run Duration"
+          icon: "mdi:timer-outline"
+          initial_value: 15
+          min_value: 1
+          max_value: 120
+          unit_of_measurement: min
+        valve_switch_id: garden_sprinkler_valve_sw0
+      - valve_switch: "Back Lawn"
+        enable_switch: "Enable Back Lawn"
+        pump_on_switch_id: sprinkler_pump_on_sw
+        pump_off_switch_id: sprinkler_pump_off_sw
+        # run_duration: 900s
+        run_duration_number: 
+          id: zone_2_run_duration
+          name: "Zone 2 Run Duration"
+          icon: "mdi:timer-outline"
+          initial_value: 45
+          min_value: 1
+          max_value: 180
+          unit_of_measurement: min
+        valve_switch_id: garden_sprinkler_valve_sw1
+
+switch:
+  # GPIO phisical switches (relays)
+  - platform: gpio
+    id: sprinkler_pump_on_sw
+    pin: ${relay_pin_1}
+    name: "Open Valve"
+    icon: "mdi:valve-open"
+    internal: true
+    on_turn_off:
+      then:
+        - lambda: 'id(binary_sensor_relay_var) = true;'
+  - platform: gpio
+    id: sprinkler_pump_off_sw
+    pin: ${relay_pin_2}
+    name: "Close Valve"
+    icon: "mdi:valve-closed"
+    internal: true
+    on_turn_off:
+      then:
+        - lambda: 'id(binary_sensor_relay_var) = false;'
+  - platform: gpio
+    id: garden_sprinkler_valve_sw0
+    pin: ${relay_pin_3}
+  - platform: gpio
+    id: garden_sprinkler_valve_sw1
+    pin: ${relay_pin_4}
+  - platform: gpio
+    id: garden_sprinkler_valve_sw2
+    pin: ${relay_pin_5}
+  - platform: gpio
+    id: garden_sprinkler_valve_sw3
+    pin: ${relay_pin_6}
+  - platform: gpio
+    id: garden_sprinkler_valve_sw4
+    pin: ${relay_pin_7}
+  - platform: gpio
+    id: garden_sprinkler_valve_sw5
+    pin: ${relay_pin_8}
+
+# Day of week toggle switches
+  - platform: template
+    id: monday
+    name:  Monday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: tuesday
+    name:  Tuesday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: wednesday
+    name:  Wednesday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: thursday
+    name:  Thursday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: friday
+    name:  Friday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: saturday
+    name:  Saturday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: sunday
+    name:  Sunday
+    icon: "mdi:calendar-range"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+
+  # Scheduled time enable switches
+  - platform: template
+    id: schedule1_enabled
+    name: Enable Schedule 1
+    icon: "mdi:clock-outline"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: schedule2_enabled
+    name: Enable Schedule 2
+    icon: "mdi:clock-outline"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+  - platform: template
+    id: schedule3_enabled
+    name: Enable Schedule 3
+    icon: "mdi:clock-outline"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+
+# Rain delay switches (can be cancelled, auto-resetting)
+  - platform: template
+    id: raindelay_24h_enabled
+    name: Enable 24h Rain Delay
+    icon: "mdi:weather-cloudy-clock"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      then:
+        - delay: 
+            hours: 24
+        - switch.turn_off: raindelay_24h_enabled
+  - platform: template
+    id: raindelay_48h_enabled
+    name: Enable 48h Rain Delay
+    icon: "mdi:weather-cloudy-clock"
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      then:
+        - delay: 
+            hours: 48
+        - switch.turn_off: raindelay_48h_enabled
+
+button:
+  # OLED switch
+  - platform: template
+    id: oled_switch
+    name: Turn on OLED display
+    icon: "mdi:television"
+    # restore_mode: RESTORE_DEFAULT_ON
+    # optimistic: true
+    on_press:
+      then:
+        - lambda: |-
+            id(oled).turn_on();
+            ESP_LOGD("display", "Turning on display by button in UI.");
+        - delay: 
+            minutes: 5
+        - lambda: |-
+            id(oled).turn_off();
+            ESP_LOGD("display", "Turning off display after 5min delay.");
+
+# Time
+time:
+  - platform: ds1307
+    id: ds1307_time
+    address: 0x68
+    on_time:
+      # Every 1 minute
+      - seconds: 0
+        minutes: /1
+        then:
+          - script.execute: check_dow
+    on_time_sync:
+      then:
+        - logger.log: "Synchronized system clock"
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Kyiv
+    on_time_sync:
+      then:
+        ds1307.write_time:
+  - platform: homeassistant
+    id: homeassistant_time
+  #   on_time_sync:
+  #     then:
+  #       ds1307.write_time:
+
+
+#1Wire temp: Dallas
+one_wire:
+  - platform: gpio
+    pin: ${dallas_temp_gpio}
+
+# I2C (display)
+i2c:
+  sda: ${i2c_sda}
+  scl: ${i2c_scl}
+  scan: true
+  frequency: 800kHz
+  id: bus_a
+
+display:
+  - platform: ssd1306_i2c
+    id: oled
+    model: SH1106_128X64
+    address: 0x3C
+    pages: 
+      # - id: page1
+      #   lambda: |-
+      #     // Status bar
+      #     it.line(0, 15, 127, 15);
+      #     if (id(ds1307_time).now().is_valid()) {
+      #       it.strftime(0, 0, id(roboto_12), "%H:%M", id(ds1307_time).now());
+      #     }
+      #     if ( (id(raindelay_24h_enabled).state || id(raindelay_48h_enabled).state) ) { it.print(78, 0, id(mdi_medium), "\U000F0597"); } else { it.print(78, 0, id(mdi_medium), "\U000F0599"); }
+      #     it.print(110, 0, id(mdi_medium), wifi_icon(id(wifi_signal_pct).state));
+      #     if (id(api_id).is_connected()) {
+      #       it.print(93, 0, id(mdi_medium), "\U000F07D0");
+      #     }
+      #     if ( id(water_temp).has_state() ) { it.printf(40, 0, id(roboto_12), "%.0f°C", id(water_temp).state); }
+
+      #     //
+
+      #     it.print(20, 16, id(roboto_12), " : 1");
+      #     it.print(20, 28, id(roboto_12), " : 2");
+      #     it.print(20, 40, id(roboto_12), " : 3");
+      #     it.print(20, 52, id(roboto_12), " : 4");
+      #     it.print(75, 16, id(roboto_12), " : 5");
+      #     it.print(75, 28, id(roboto_12), " : 6");
+      #     it.print(75, 40, id(roboto_12), " : 7");
+      #     it.print(75, 52, id(roboto_12), " : 8");
+
+      #     if ( id(garden_sprinkler_ctrlr).active_valve().has_value()) {
+      #       if ( id(sprinkler_pump_on_sw).state ) { it.print( 5, 16, id(mdi_medium), "\U000F058C" ); } else { it.print( 5, 16, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(sprinkler_pump_off_sw).state ) { it.print( 5, 28, id(mdi_medium), "\U000F058C" ); } else { it.print( 5, 28, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(garden_sprinkler_valve_sw0).state ) { it.print( 5, 40, id(mdi_medium), "\U000F058C" ); } else { it.print( 5, 40, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(garden_sprinkler_valve_sw1).state ) { it.print( 5, 52, id(mdi_medium), "\U000F058C" ); } else { it.print( 5, 52, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(garden_sprinkler_valve_sw2).state ) { it.print(64, 16, id(mdi_medium), "\U000F058C" ); } else { it.print(64, 16, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(garden_sprinkler_valve_sw3).state ) { it.print(64, 28, id(mdi_medium), "\U000F058C" ); } else { it.print(64, 28, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(garden_sprinkler_valve_sw4).state ) { it.print(64, 40, id(mdi_medium), "\U000F058C" ); } else { it.print(64, 40, id(mdi_medium), "\U000F1508" ); }
+      #       if ( id(garden_sprinkler_valve_sw5).state ) { it.print(64, 52, id(mdi_medium), "\U000F058C" ); } else { it.print(64, 52, id(mdi_medium), "\U000F1508" ); }
+      #     } else {
+      #       it.print( 5, 16, id(mdi_medium), "\U000F1508" );
+      #       it.print( 5, 28, id(mdi_medium), "\U000F1508" );
+      #       it.print( 5, 40, id(mdi_medium), "\U000F1508" );
+      #       it.print( 5, 52, id(mdi_medium), "\U000F1508" );
+      #       it.print(64, 16, id(mdi_medium), "\U000F1508" );
+      #       it.print(64, 28, id(mdi_medium), "\U000F1508" );
+      #       it.print(64, 40, id(mdi_medium), "\U000F1508" );
+      #       it.print(64, 52, id(mdi_medium), "\U000F1508" );
+      #     }
+      - id: page2
+        lambda: |-
+          // Status bar
+          it.line(0, 15, 127, 15);
+          if (id(ds1307_time).now().is_valid()) {
+            it.strftime(0, 0, id(roboto_12), "%H:%M", id(ds1307_time).now());
+          }
+          if ( (id(raindelay_24h_enabled).state || id(raindelay_48h_enabled).state) ) { it.print(78, 0, id(mdi_medium), "\U000F0597"); } else { it.print(78, 0, id(mdi_medium), "\U000F0599"); }
+          it.print(110, 0, id(mdi_medium), wifi_icon(id(wifi_signal_pct).state));
+          if (id(api_id).is_connected()) {
+            it.print(93, 0, id(mdi_medium), "\U000F07D0");
+          }
+          if ( id(water_temp).has_state() ) { it.printf(40, 0, id(roboto_12), "%.0f°C", id(water_temp).state); }
+
+          if (id(garden_sprinkler_ctrlr).time_remaining_current_operation().value() > 0) {
+
+            it.print(0, 25, id(mdi_medium), "\U000F1060");
+            it.print(20, 25, id(roboto_12), "Залишилось:"); // Time remaining
+            it.printf(10, 40, id(roboto_12), "%2d хв %2d сек", id(garden_sprinkler_ctrlr).time_remaining_current_operation().value() / 60, id(garden_sprinkler_ctrlr).time_remaining_current_operation().value() % 60);
+          } 
+          else {
+            it.print(0, 25, id(roboto_12), "Режим очікування"); // Idle
+          }
+      # - id: page3
+      #   lambda: |-
+      #     if ( id(raindelay_24h_enabled).state ) { it.print(70, 0, id(mdi_medium), "\U000F0597"); } else { it.print(70, 0, id(mdi_medium), "\U000F0599"); }
+      #     if ( id(raindelay_48h_enabled).state ) { it.print(85, 0, id(mdi_medium), "\U000F0597"); } else { it.print(85, 0, id(mdi_medium), "\U000F0599"); }
+
+###
+# Automation
+###
+interval:
+  - interval: 10s
+    then:
+      - display.page.show_next: oled
+      - component.update: oled
+
+
+###
+# Inputs
+###
+datetime:
+  - platform: template
+    name: Schedule 1 Start Time
+    entity_category: config
+    id: s1t
+    type: time
+    optimistic: true
+    restore_value: true
+  - platform: template
+    name: Schedule 2 Start Time
+    entity_category: config
+    id: s2t
+    type: time
+    optimistic: true
+    restore_value: true
+  - platform: template
+    name: Schedule 3 Start Time
+    entity_category: config
+    id: s3t
+    type: time
+    optimistic: true
+    restore_value: true
+
+
+###
+# Sensors
+###
+sensor:
+    # 1Wire
+  - platform: dallas_temp
+    address: ${dallas_temp_address}
+    name: "Water Temperature"
+    id: water_temp
+    icon: "mdi:water-thermometer"
+    update_interval: 15s
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Irrigation Time Remaining Sensor"
+    icon: "mdi:timer-sand-full"
+    unit_of_measurement: "s"
+    lambda: "return id(garden_sprinkler_ctrlr).time_remaining_current_operation().value();"
+    update_interval: 1s 
+    accuracy_decimals: 0
+
+  # Expose Progress Percent as a sensor.
+  - platform: template
+    id: progress_percent
+    name: "Progress"
+    unit_of_measurement: "%"
+    icon: "mdi:progress-clock"
+    update_interval: 1s
+    disabled_by_default: true
+    accuracy_decimals: 0
+    lambda: |-
+      if (!id(garden_sprinkler_ctrlr).active_valve().has_value()) {
+        return 0;
+      }
+      auto valve_index = id(garden_sprinkler_ctrlr).active_valve().value();
+      auto duration = id(garden_sprinkler_ctrlr).valve_run_duration_adjusted(valve_index);
+      if (duration <= 0) {
+        return 0;
+      }
+      auto remaining = id(garden_sprinkler_ctrlr).time_remaining_current_operation().value_or(duration);
+      if (remaining > duration) {
+        return 0;
+      }
+      return int(round((duration - remaining) * 100.0 / duration));
+
+
+text_sensor:
+  # Expose Time Remaining as a sensor.
+  - platform: template
+    id: time_remaining
+    name: Time remaining
+    update_interval: 1s
+    disabled_by_default: True
+    icon: "mdi:timer-sand"
+    lambda: |-
+      int seconds = round(id(garden_sprinkler_ctrlr).time_remaining_current_operation().value_or(0));
+      int days = seconds / (24 * 3600);
+      seconds = seconds % (24 * 3600);
+      int hours = seconds / 3600;
+      seconds = seconds % 3600;
+      int minutes = seconds /  60;
+      seconds = seconds % 60;
+        return {
+          ((days ? String(days) + "d " : "") + 
+          (hours ? String(hours) + "h " : "") +
+          (minutes ? String(minutes) + "m " : "") +
+          (String(seconds) + "s")).c_str()};
+
+  - platform: template
+    name: "Irrigation Active Valve"
+    icon: "mdi:sprinkler"
+    id: active_valve
+    update_interval: 5s
+    lambda: |-
+      if (id(garden_sprinkler_ctrlr).active_valve().has_value()) {
+        int active_valve = id(garden_sprinkler_ctrlr).active_valve().value() + 1;
+        return std::string("Zone ") + to_string(active_valve);
+      } else {
+        return std::string("Idle");
+      }
+
+
+binary_sensor:
+  - platform: status
+    name: "Connection Status"
+  - platform: template
+    name: "Valve State"
+    icon: "mdi:pipe-valve"
+    id: valve_state
+    lambda: 'return id(binary_sensor_relay_var);'
+    device_class: opening
+  - platform: template
+    name: "OLED Display"
+    icon: "mdi:television"
+    id: oled_display
+    lambda: 'return id(oled).is_on();'
+
+  - platform: gpio
+    pin: ${io0_button}
+    id: io0_button
+    internal: True
+    on_click:
+      - min_length: 50ms
+        max_length: 350ms 
+        then:
+          if:
+            condition:
+              lambda: |-
+               return id(oled).is_on();
+            then:
+              - lambda: |-
+                  id(oled).turn_off();
+                  ESP_LOGD("display", "Turning off display.");
+            else:
+              - lambda: |-
+                  id(oled).turn_on();
+                  ESP_LOGD("display", "Turning on display.");
+              - delay: 2min
+              - lambda: |-
+                  id(oled).turn_off();
+                  ESP_LOGD("display", "Turning off display after 2min delay.");
+      - min_length: 500ms
+        max_length: 1000ms 
+        then:
+          if:
+            condition:
+              lambda: |-
+                return id(garden_sprinkler_ctrlr).active_valve().has_value();
+            then:
+              - logger.log:
+                  format: "Stopped Sprinkler cycle by pressed button."
+                  level: INFO
+              - sprinkler.shutdown: garden_sprinkler_ctrlr
+            else:
+              - script.execute: run_irrigation
+
+
+script:
+    # Check what day of the week it is currently, and if we have the schedule enabled today
+  - id: check_dow
+    then:
+      lambda: |-
+        int dow = id(ds1307_time).now().day_of_week;
+        if      ((dow == 1 && id(sunday).state)
+        ||       (dow == 2 && id(monday).state)
+        ||       (dow == 3 && id(tuesday).state)
+        ||       (dow == 4 && id(wednesday).state)
+        ||       (dow == 5 && id(thursday).state)
+        ||       (dow == 6 && id(friday).state)
+        ||       (dow == 7 && id(saturday).state)) {
+          id(check_time).execute();
+        }
+    # If current time is equal to any of the scheduled start times, start the sprinkler cycle
+  - id: check_time
+    then:
+      lambda: |-
+        int hour = id(ds1307_time).now().hour;
+        int minute = id(ds1307_time).now().minute;
+        if      ((hour == id(s1t).hour && minute == id(s1t).minute && id(schedule1_enabled).state && !id(raindelay_24h_enabled).state && !id(raindelay_48h_enabled).state)
+        ||      (hour == id(s2t).hour && minute == id(s2t).minute && id(schedule2_enabled).state && !id(raindelay_24h_enabled).state && !id(raindelay_48h_enabled).state)
+        ||      (hour == id(s3t).hour && minute == id(s3t).minute && id(schedule3_enabled).state && !id(raindelay_24h_enabled).state && !id(raindelay_48h_enabled).state)) {
+          id(run_irrigation).execute();
+        }
+    # Start the sprinkler cycle
+  - id: run_irrigation
+    mode: restart
+    then:
+      - sprinkler.start_full_cycle: garden_sprinkler_ctrlr
+      - lambda: ESP_LOGI("main", "Sprinkler cycle has begun!");
+      - lambda: id(oled).turn_on();
+      - delay: 5min
+      - lambda: id(oled).turn_off();
+
