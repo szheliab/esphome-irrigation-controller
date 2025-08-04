@@ -7,3 +7,4 @@ Irrigation controller based on ESPHome ([Sprinkler controller](https://esphome.i
 * [12-24V ball valve](https://a.aliexpress.com/_ExImKO2)
 * [AC/DC converter](https://a.aliexpress.com/_EGvSTsi)
 * [SH1106 1.3" display](https://a.aliexpress.com/_EuUBVeQ)
+* [RTC module](https://a.aliexpress.com/_EvEpPSm)

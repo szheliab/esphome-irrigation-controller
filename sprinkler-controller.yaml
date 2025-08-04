@@ -84,12 +84,9 @@ api:
     - service: resume
       then:
         - sprinkler.resume: garden_sprinkler_ctrlr
-  # encryption:
-    # key: "+z8komiS9bTAq7gCGK3Tp2WmcAki9qKN46JEjaQg9GE="
 
 ota:
   - platform: esphome
-    # password: "748be79d5ed6b59155f76b15360e946e"
 
 status_led:
   pin: ${status_led}
@@ -148,7 +145,6 @@ sprinkler:
         enable_switch: "Enable Garden Drip"
         pump_on_switch_id: sprinkler_pump_on_sw
         pump_off_switch_id: sprinkler_pump_off_sw
-        # run_duration: 900s
         run_duration_number: 
           id: zone_1_run_duration
           name: "Zone 1 Run Duration"
@@ -162,7 +158,6 @@ sprinkler:
         enable_switch: "Enable Back Lawn"
         pump_on_switch_id: sprinkler_pump_on_sw
         pump_off_switch_id: sprinkler_pump_off_sw
-        # run_duration: 900s
         run_duration_number: 
           id: zone_2_run_duration
           name: "Zone 2 Run Duration"
